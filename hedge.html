@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HedgeCalc</title>
+<style>
+:root{
+  --bg:#F2F2F7; --card:#fff; --text:#1c1c1e; --muted:#8e8e93;
+  --blue:#007aff; --green:#34c759; --red:#ff3b30; --orange:#ff9500; --purple:#af52de; --teal:#5ac8fa;
+  --sep:#e5e5ea; --press:#e8e8ed;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+body{margin:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+  font-size:16px; -webkit-font-smoothing:antialiased;}
+#app{max-width:520px; margin:0 auto; padding:0 16px 40px;}
+.topbar{display:flex; align-items:flex-end; gap:8px; margin:8px 2px 14px;}
+.app-title{font-size:32px; font-weight:800; letter-spacing:-.02em; flex:1; line-height:1.15;}
+.card{background:var(--card); border-radius:14px; padding:16px; margin-bottom:12px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);}
+.card h3{margin:0 0 12px; font-size:13px; font-weight:600; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.06em;}
+.row{display:flex; gap:10px; margin-bottom:10px;}
+.row:last-child{margin-bottom:0;}
+.field{flex:1; min-width:0;}
+.field label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px;}
+.field input, .field select{
+  width:100%; padding:10px 12px; font-size:16px; border:1px solid var(--sep);
+  border-radius:10px; background:#fff; color:var(--text); outline:none;}
+.field input:focus, .field select:focus{border-color:var(--blue);}
+.side{border-left:3px solid var(--sep); padding-left:12px; margin-bottom:16px;}
+.side.a{border-color:var(--blue);}
+.side.b{border-color:var(--orange);}
+.side.c{border-color:var(--purple);}
+.side.d{border-color:var(--teal);}
+.side-title{font-weight:700; font-size:15px; margin-bottom:10px; display:flex; align-items:center;}
+.side-title .rm{margin-left:auto; color:var(--muted); background:none; border:none; font-size:18px; cursor:pointer; padding:0 4px;}
+.results{background:#f8f8fa; border-radius:10px; padding:12px 14px; margin-top:12px;}
+.rrow{display:flex; justify-content:space-between; padding:5px 0; font-size:15px;}
+.rrow .k{color:var(--muted);}
+.rrow .v{font-weight:600; font-variant-numeric:tabular-nums;}
+.rrow.profit .v{color:var(--green);}
+.rrow.loss .v{color:var(--red);}
+.rrow.total{border-top:1px solid var(--sep); margin-top:6px; padding-top:10px;}
+.badge{display:inline-block; font-size:12px; font-weight:700; padding:3px 10px;
+  border-radius:20px; margin-left:8px;}
+.badge.ok{background:#e6f9ed; color:#1a7a3a;}
+.badge.bad{background:#fdecea; color:#b3261e;}
+.btn{display:block; width:100%; padding:13px; font-size:16px; font-weight:600;
+  background:var(--blue); color:#fff; border:none; border-radius:12px; cursor:pointer;}
+.btn:active{opacity:.85;}
+.btn.sec{background:var(--press); color:var(--text); margin-top:8px;}
+.add-side{display:block; width:100%; padding:10px; font-size:14px; font-weight:600;
+  background:none; color:var(--blue); border:1px dashed var(--blue); border-radius:10px; cursor:pointer; margin-bottom:16px;}
+.add-side:active{opacity:.7;}
+.small{font-size:12px; color:var(--muted); margin-top:8px;}
+.divider{height:1px; background:var(--sep); margin:16px 0;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar"><div class="app-title">HedgeCalc</div></div>
+
+  <div class="card">
+    <h3>Hedge Calculator</h3>
+    <div id="sides"></div>
+    <button class="add-side" id="add-side-btn">+ Add side</button>
+    <div class="row">
+      <button class="btn sec" id="opt-boost-btn" style="flex:1;">Optimize boosts (A/B)</button>
+    </div>
+    <button class="btn" id="calc-btn">Calculate</button>
+    <div class="results" id="results" style="display:none"></div>
+    <div class="small">Boost max caps the boosted portion — cash above the max is unboosted. "Optimize boosts" finds the best boosted + normal split for Sides A/B.</div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+/* select-all on focus for numeric text inputs (iOS Safari: type=number ignores select()) */
+function selectAllOnFocus(el){
+  const sel=()=>{ try{ el.select(); }catch(e){} };
+  el.addEventListener("focus", ()=>{ sel(); requestAnimationFrame(sel); setTimeout(sel, 100); });
+  el.addEventListener("click", ()=>{ if(document.activeElement===el) sel(); });
+}
+
+/* persist inputs to localStorage */
+const LS_KEY="hedgecalc_v1";
+function saveInputs(){
+  try{
+    const data={visibleSides:visibleSides.slice(), sides:{}};
+    visibleSides.forEach(id=>{
+      const g=x=>{ const el=$(id+"-"+x); return el?el.value:""; };
+      data.sides[id]={book:g("book"), odds:g("odds"), cash:g("cash"), bonus:g("bonus"), boost:g("boost"), boostmax:g("boostmax")};
+    });
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  }catch(e){}
+}
+function restoreInputs(){
+  try{
+    const raw=localStorage.getItem(LS_KEY);
+    if(!raw) return false;
+    const data=JSON.parse(raw);
+    if(!data||!Array.isArray(data.visibleSides)||!data.sides) return false;
+    visibleSides=["a","b"];
+    ["c","d"].forEach(id=>{ if(data.visibleSides.indexOf(id)>=0) visibleSides.push(id); });
+    const box=$("sides");
+    box.innerHTML="";
+    visibleSides.forEach(id=>{
+      box.appendChild(buildSide(id));
+      const s=data.sides[id];
+      if(s){
+        ["book","odds","cash","bonus","boost","boostmax"].forEach(k=>{
+          if(s[k]!=null&&s[k]!=="") $(id+"-"+k).value=s[k];
+        });
+      }
+    });
+    if(!data.sides.a||!data.sides.a.book) $("a-book").value="FanDuel";
+    if(!data.sides.b||!data.sides.b.book) $("b-book").value="DraftKings";
+    updateAddBtn();
+    return true;
+  }catch(e){ return false; }
+}
+document.addEventListener("input", e=>{
+  const t=e.target;
+  if(t&&t.id&&/^[abcd]-(odds|cash|bonus|boost|boostmax)$/.test(t.id)) saveInputs();
+});
+document.addEventListener("change", e=>{
+  const t=e.target;
+  if(t&&t.id&&/^[abcd]-book$/.test(t.id)) saveInputs();
+});
+const BOOKS=["DraftKings","FanDuel","Fanatics","BetMGM","Bally Bet","Caesar","Polymarket","Other"];
+const SIDE_IDS=["a","b","c","d"];
+const SIDE_NAMES={a:"A",b:"B",c:"C",d:"D"};
+let visibleSides=["a","b"];
+
+function buildSide(id){
+  const div=document.createElement("div");
+  div.className="side "+id;
+  div.id="side-"+id;
+  const removable=(id==="c"||id==="d");
+  div.innerHTML=`
+    <div class="side-title">Side ${SIDE_NAMES[id]}${removable?'<button class="rm" data-rm="'+id+'">×</button>':""}</div>
+    <div class="row">
+      <div class="field"><label>Book</label><select id="${id}-book"></select></div>
+      <div class="field"><label>Decimal odds</label>
+        <input id="${id}-odds" type="text" inputmode="decimal" autocomplete="off" value="2.00"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Cash stake ($)</label>
+        <input id="${id}-cash" type="text" inputmode="decimal" autocomplete="off"></div>
+      <div class="field"><label>Bonus stake ($)</label>
+        <input id="${id}-bonus" type="text" inputmode="decimal" autocomplete="off" value="0"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Boost %</label>
+        <input id="${id}-boost" type="text" inputmode="numeric" autocomplete="off" value="0"></div>
+      <div class="field"><label>Boost max ($)</label>
+        <input id="${id}-boostmax" type="text" inputmode="decimal" autocomplete="off" value="0"></div>
+    </div>`;
+  const sel=div.querySelector("select");
+  BOOKS.forEach(b=>{ const o=document.createElement("option"); o.value=b; o.textContent=b; sel.appendChild(o); });
+  if(removable){
+    div.querySelector("[data-rm]").onclick=()=>removeSide(id);
+  }
+  div.querySelectorAll('input[type="text"]').forEach(selectAllOnFocus);
+  return div;
+}
+
+function updateAddBtn(){
+  const btn=$("add-side-btn");
+  if(visibleSides.length>=4){ btn.style.display="none"; }
+  else{
+    btn.style.display="block";
+    const next=SIDE_IDS.find(id=>!visibleSides.includes(id));
+    btn.textContent="+ Add Side "+SIDE_NAMES[next];
+  }
+}
+
+function removeSide(id){
+  visibleSides=visibleSides.filter(s=>s!==id);
+  const el=$("side-"+id);
+  if(el) el.remove();
+  updateAddBtn();
+  saveInputs();
+}
+
+$("add-side-btn").onclick=()=>{
+  const next=SIDE_IDS.find(id=>!visibleSides.includes(id));
+  if(next){
+    visibleSides.push(next);
+    $("sides").appendChild(buildSide(next));
+    updateAddBtn();
+    saveInputs();
+  }
+};
+
+// initial render: restore saved inputs if any, else A and B with defaults
+(function init(){
+  if(restoreInputs()) return;
+  const box=$("sides");
+  visibleSides.forEach(id=>box.appendChild(buildSide(id)));
+  $("a-book").value="FanDuel";
+  $("b-book").value="DraftKings";
+  updateAddBtn();
+})();
+
+/* ---------- hedge math (cap-aware) ---------- */
+// Cash up to boostMax gets the boost; excess cash is unboosted.
+// Bonus: profit only, no boost, stake not returned.
+function sideReturn(cash, bonus, odds, boostPct, boostMax){
+  const boosted=Math.min(cash, boostMax||0);
+  const normal=cash-boosted;
+  const boostedRet=boosted+boosted*(odds-1)*(1+boostPct/100);
+  const normalRet=normal*odds;
+  const bonusRet=bonus*(odds-1);
+  return {total:boostedRet+normalRet+bonusRet, boostedRet, normalRet, bonusRet, boosted, normal};
+}
+function fmt(n){ return "$"+n.toFixed(2); }
+function fmtSigned(n){ return (n>=0?"+":"−")+"$"+Math.abs(n).toFixed(2); }
+
+function readSide(id){
+  return {
+    id:id, name:SIDE_NAMES[id],
+    book:$(id+"-book").value,
+    odds:parseFloat($(id+"-odds").value)||0,
+    cash:parseFloat($(id+"-cash").value)||0,
+    bonus:parseFloat($(id+"-bonus").value)||0,
+    boost:parseFloat($(id+"-boost").value)||0,
+    boostMax:parseFloat($(id+"-boostmax").value)||0
+  };
+}
+
+/* ---------- boost optimizer (Sides A/B) ---------- */
+$("opt-boost-btn").onclick=()=>{
+  const A=readSide("a"), B=readSide("b");
+  if(A.odds<1.01||B.odds<1.01){ alert("Enter valid odds for Sides A and B."); return; }
+  const Oa=A.odds, Ob=B.odds, pa=A.boost, pb=B.boost, Ma=A.boostMax, Mb=B.boostMax;
+  const a1=1+(Oa-1)*(1+pa/100), a0=Oa;
+  const b1=1+(Ob-1)*(1+pb/100), b0=Ob;
+
+  function evalPt(xa,xb){
+    const Ka=a1*xa-xa-xb, Kb=b1*xb-xa-xb;
+    const D=Kb-Ka;
+    let ya,yb;
+    if(D>=0){ ya=D/a0; yb=0; } else { ya=0; yb=-D/b0; }
+    const P=Ka+(a0-1)*ya-yb;
+    return {xa,xb,ya,yb,P};
+  }
+
+  let best=null;
+  for(let xa=0; xa<=Ma+1e-9; xa+=0.5){
+    for(let xb=0; xb<=Mb+1e-9; xb+=0.5){
+      const r=evalPt(Math.min(xa,Ma), Math.min(xb,Mb));
+      if(!best||r.P>best.P) best=r;
+    }
+  }
+  // refine
+  for(let xa=Math.max(0,best.xa-1); xa<=Math.min(Ma,best.xa+1)+1e-9; xa+=0.1){
+    for(let xb=Math.max(0,best.xb-1); xb<=Math.min(Mb,best.xb+1)+1e-9; xb+=0.1){
+      const r=evalPt(xa,xb);
+      if(r.P>best.P) best=r;
+    }
+  }
+
+  // Fill: cash = boosted + normal; boostMax = boosted (so cap matches optimal)
+  $("a-cash").value=(best.xa+best.ya).toFixed(2);
+  $("a-boostmax").value=best.xa.toFixed(2);
+  $("b-cash").value=(best.xb+best.yb).toFixed(2);
+  $("b-boostmax").value=best.xb.toFixed(2);
+  $("calc-btn").click();
+};
+
+$("calc-btn").onclick=()=>{
+  const sides=visibleSides.map(readSide);
+  const active=sides.filter(s=>s.odds>=1.01&&(s.cash>0||s.bonus>0));
+  if(!active.length){ alert("Enter odds and a stake for at least one side."); return; }
+  const bad=sides.filter(s=>(s.cash>0||s.bonus>0)&&s.odds<1.01);
+  if(bad.length){ alert("Enter valid decimal odds (≥1.01) for sides with stakes."); return; }
+
+  const totalCash=active.reduce((t,s)=>t+s.cash,0);
+  const totalBonus=active.reduce((t,s)=>t+s.bonus,0);
+  // Every side with valid odds is a possible outcome. If a side has no stake
+  // and it wins, you get nothing back — worst case must include that.
+  const outcomes=sides.filter(s=>s.odds>=1.01);
+  const results=outcomes.map(s=>{
+    const staked=active.indexOf(s)>=0;
+    const r=staked?sideReturn(s.cash,s.bonus,s.odds,s.boost,s.boostMax)
+                  :{boosted:0,normal:0,bonus:0,boostedRet:0,normalRet:0,bonusRet:0,total:0};
+    return {...s, ...r, profit:r.total-totalCash, staked};
+  });
+  const worst=Math.min(...results.map(r=>r.profit));
+  const ok=worst>0;
+
+  const box=$("results"); box.style.display="block";
+  let html=`
+    <div class="rrow"><span class="k">Total cash staked</span><span class="v">${fmt(totalCash)}</span></div>
+    <div class="rrow"><span class="k">Bonus staked (free)</span><span class="v">${fmt(totalBonus)}</span></div>`;
+  results.forEach((r)=>{
+    html+=`
+    <div class="divider"></div>
+    <div class="rrow"><span class="k"><b>Side ${r.name}</b> (${r.book} @ ${r.odds})</span><span></span></div>`;
+    if(!r.staked){
+      html+=`
+      <div class="rrow loss"><span class="k" style="padding-left:12px">No stake — lose everything if this wins</span><span class="v">${fmtSigned(r.profit)}</span></div>`;
+    }else{
+      if(r.boosted>0.005){
+        html+=`<div class="rrow"><span class="k" style="padding-left:12px">Boosted ${fmt(r.boosted)} (${r.boost}%) →</span><span class="v">${fmt(r.boostedRet)}</span></div>`;
+      }
+      if(r.normal>0.005){
+        html+=`<div class="rrow"><span class="k" style="padding-left:12px">Normal ${fmt(r.normal)} →</span><span class="v">${fmt(r.normalRet)}</span></div>`;
+      }
+      if(r.bonus>0){
+        html+=`<div class="rrow"><span class="k" style="padding-left:12px">Bonus ${fmt(r.bonus)} →</span><span class="v">${fmt(r.bonusRet)}</span></div>`;
+      }
+      html+=`
+      <div class="rrow"><span class="k" style="padding-left:12px">Total return</span><span class="v">${fmt(r.total)}</span></div>
+      <div class="rrow ${r.profit>=0?"profit":"loss"}"><span class="k" style="padding-left:12px">Profit</span><span class="v">${fmtSigned(r.profit)}</span></div>`;
+    }
+  });
+  html+=`
+    <div class="divider"></div>
+    <div class="rrow total"><span class="k">Guaranteed<span class="badge ${ok?"ok":"bad"}">${ok?"YES":"NO"}</span></span>
+      <span class="v">${fmtSigned(worst)} worst case</span></div>`;
+  box.innerHTML=html;
+};
+</script>
+</body>
+</html>
