@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HedgeCalc</title>
+<style>
+:root{
+  --bg:#F2F2F7; --card:#fff; --text:#1c1c1e; --muted:#8e8e93;
+  --blue:#007aff; --green:#34c759; --red:#ff3b30; --orange:#ff9500; --purple:#af52de; --teal:#5ac8fa;
+  --sep:#e5e5ea; --press:#e8e8ed;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+body{margin:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+  font-size:16px; -webkit-font-smoothing:antialiased;}
+#app{max-width:520px; margin:0 auto; padding:0 16px 40px;}
+.topbar{display:flex; align-items:flex-end; gap:8px; margin:8px 2px 14px;}
+.app-title{font-size:32px; font-weight:800; letter-spacing:-.02em; flex:1; line-height:1.15;}
+.card{background:var(--card); border-radius:14px; padding:16px; margin-bottom:12px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);}
+.card h3{margin:0 0 12px; font-size:13px; font-weight:600; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.06em;}
+.row{display:flex; gap:10px; margin-bottom:10px;}
+.row:last-child{margin-bottom:0;}
+.field{flex:1; min-width:0;}
+.field label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px;}
+.field input, .field select{
+  width:100%; padding:10px 12px; font-size:16px; border:1px solid var(--sep);
+  border-radius:10px; background:#fff; color:var(--text); outline:none;}
+.field input:focus, .field select:focus{border-color:var(--blue);}
+.side{border-left:3px solid var(--sep); padding-left:12px; margin-bottom:16px;}
+.side.a{border-color:var(--blue);}
+.side.b{border-color:var(--orange);}
+.side.c{border-color:var(--purple);}
+.side.d{border-color:var(--teal);}
+.side-title{font-weight:700; font-size:15px; margin-bottom:10px; display:flex; align-items:center;}
+.side-title .rm{margin-left:auto; color:var(--muted); background:none; border:none; font-size:18px; cursor:pointer; padding:0 4px;}
+.results{background:#f8f8fa; border-radius:10px; padding:12px 14px; margin-top:12px;}
+.rrow{display:flex; justify-content:space-between; padding:5px 0; font-size:15px;}
+.rrow .k{color:var(--muted);}
+.rrow .v{font-weight:600; font-variant-numeric:tabular-nums;}
+.rrow.profit .v{color:var(--green);}
+.rrow.loss .v{color:var(--red);}
+.rrow.total{border-top:1px solid var(--sep); margin-top:6px; padding-top:10px;}
+.badge{display:inline-block; font-size:12px; font-weight:700; padding:3px 10px;
+  border-radius:20px; margin-left:8px;}
+.badge.ok{background:#e6f9ed; color:#1a7a3a;}
+.badge.bad{background:#fdecea; color:#b3261e;}
+.btn{display:block; width:100%; padding:13px; font-size:16px; font-weight:600;
+  background:var(--blue); color:#fff; border:none; border-radius:12px; cursor:pointer;}
+.btn:active{opacity:.85;}
+.btn.sec{background:var(--press); color:var(--text); margin-top:8px;}
+.add-side{display:block; width:100%; padding:10px; font-size:14px; font-weight:600;
+  background:none; color:var(--blue); border:1px dashed var(--blue); border-radius:10px; cursor:pointer; margin-bottom:16px;}
+.add-side:active{opacity:.7;}
+.small{font-size:12px; color:var(--muted); margin-top:8px;}
+.divider{height:1px; background:var(--sep); margin:16px 0;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar"><div class="app-title">HedgeCalc</div></div>
+
+  <!-- Hedge calculator -->
+  <div class="card">
+    <h3>Hedge Calculator</h3>
+    <div id="sides"></div>
+    <button class="add-side" id="add-side-btn">+ Add side</button>
+    <button class="btn" id="calc-btn">Calculate</button>
+    <div class="results" id="results" style="display:none"></div>
+  </div>
+
+  <!-- Bonus optimizer -->
+  <div class="card">
+    <h3>Bonus Optimizer <span class="small" style="text-transform:none">(best side for your bonus)</span></h3>
+    <div class="row">
+      <div class="field"><label>Bonus amount ($)</label>
+        <input id="opt-bonus" type="number" step="0.01" min="0" value="25"></div>
+    </div>
+    <div class="small" style="margin-bottom:10px;">Uses odds from Sides A–D above. Finds which side maximizes your guaranteed profit when the bonus goes there (cash hedges on the rest).</div>
+    <button class="btn sec" id="opt-btn">Find best placement</button>
+    <div class="results" id="opt-results" style="display:none"></div>
+  </div>
+
+  <!-- Profit boost optimizer -->
+  <div class="card">
+    <h3>Boost Optimizer <span class="small" style="text-transform:none">(profit boosts with caps)</span></h3>
+    <div class="small" style="margin-bottom:10px;">Each book's boost can only apply up to its max stake. Finds the optimal mix of boosted + normal stakes for max guaranteed profit.</div>
+    <div class="row">
+      <div class="field"><label>Odds A</label>
+        <input id="bo-odds-a" type="number" step="0.01" min="1.01" value="2.00"></div>
+      <div class="field"><label>Boost A %</label>
+        <input id="bo-pct-a" type="number" step="1" min="0" value="50"></div>
+      <div class="field"><label>Max $ A</label>
+        <input id="bo-max-a" type="number" step="0.01" min="0" value="25"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Odds B</label>
+        <input id="bo-odds-b" type="number" step="0.01" min="1.01" value="2.00"></div>
+      <div class="field"><label>Boost B %</label>
+        <input id="bo-pct-b" type="number" step="1" min="0" value="30"></div>
+      <div class="field"><label>Max $ B</label>
+        <input id="bo-max-b" type="number" step="0.01" min="0" value="10"></div>
+    </div>
+    <button class="btn sec" id="bo-btn">Optimize boosts</button>
+    <div class="results" id="bo-results" style="display:none"></div>
+  </div>
+
+  <!-- Quick solver -->
+  <div class="card">
+    <h3>Quick Solver <span class="small" style="text-transform:none">(cash only, no boost)</span></h3>
+    <div class="row">
+      <div class="field"><label>Odds A</label>
+        <input id="s-odds-a" type="number" step="0.01" min="1.01" value="2.00"></div>
+      <div class="field"><label>Odds B</label>
+        <input id="s-odds-b" type="number" step="0.01" min="1.01" value="2.00"></div>
+      <div class="field"><label>Total cash ($)</label>
+        <input id="s-total" type="number" step="0.01" min="0"></div>
+    </div>
+    <button class="btn sec" id="solve-btn">Solve for equal profit</button>
+    <div class="results" id="solver-results" style="display:none"></div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const BOOKS=["DraftKings","FanDuel","Fanatics","BetMGM","Bally Bet","Caesar","Polymarket","Other"];
+const SIDE_IDS=["a","b","c","d"];
+const SIDE_NAMES={a:"A",b:"B",c:"C",d:"D"};
+let visibleSides=["a","b"];
+
+function buildSide(id){
+  const div=document.createElement("div");
+  div.className="side "+id;
+  div.id="side-"+id;
+  const removable=(id==="c"||id==="d");
+  div.innerHTML=`
+    <div class="side-title">Side ${SIDE_NAMES[id]}${removable?'<button class="rm" data-rm="'+id+'">×</button>':""}</div>
+    <div class="row">
+      <div class="field"><label>Book</label><select id="${id}-book"></select></div>
+      <div class="field"><label>Decimal odds</label>
+        <input id="${id}-odds" type="number" step="0.01" min="1.01" value="2.00"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Cash stake ($)</label>
+        <input id="${id}-cash" type="number" step="0.01" min="0"></div>
+      <div class="field"><label>Bonus stake ($)</label>
+        <input id="${id}-bonus" type="number" step="0.01" min="0" value="0"></div>
+      <div class="field"><label>Boost %</label>
+        <input id="${id}-boost" type="number" step="1" min="0" value="0"></div>
+    </div>`;
+  // book options
+  const sel=div.querySelector("select");
+  BOOKS.forEach(b=>{ const o=document.createElement("option"); o.value=b; o.textContent=b; sel.appendChild(o); });
+  if(removable){
+    div.querySelector("[data-rm]").onclick=()=>removeSide(id);
+  }
+  return div;
+}
+
+function updateAddBtn(){
+  const btn=$("add-side-btn");
+  if(visibleSides.length>=4){ btn.style.display="none"; }
+  else{
+    btn.style.display="block";
+    const next=SIDE_IDS.find(id=>!visibleSides.includes(id));
+    btn.textContent="+ Add Side "+SIDE_NAMES[next];
+  }
+}
+
+function removeSide(id){
+  visibleSides=visibleSides.filter(s=>s!==id);
+  const el=$("side-"+id);
+  if(el) el.remove();
+  updateAddBtn();
+}
+
+$("add-side-btn").onclick=()=>{
+  const next=SIDE_IDS.find(id=>!visibleSides.includes(id));
+  if(next){
+    visibleSides.push(next);
+    $("sides").appendChild(buildSide(next));
+    updateAddBtn();
+  }
+};
+
+// initial render: A and B
+(function init(){
+  const box=$("sides");
+  visibleSides.forEach(id=>box.appendChild(buildSide(id)));
+  $("a-book").value="FanDuel";
+  $("b-book").value="DraftKings";
+  updateAddBtn();
+})();
+
+/* ---------- hedge math ---------- */
+// Cash: stake returned + boosted profit. Bonus: profit only, no boost, stake not returned.
+function sideReturn(cash, bonus, odds, boostPct){
+  const cashProfit=cash*(odds-1)*(1+boostPct/100);
+  const bonusProfit=bonus*(odds-1);
+  return cash+cashProfit+bonusProfit;
+}
+function fmt(n){ return "$"+n.toFixed(2); }
+function fmtSigned(n){ return (n>=0?"+":"−")+"$"+Math.abs(n).toFixed(2); }
+
+function readSide(id){
+  return {
+    id:id, name:SIDE_NAMES[id],
+    book:$(id+"-book").value,
+    odds:parseFloat($(id+"-odds").value)||0,
+    cash:parseFloat($(id+"-cash").value)||0,
+    bonus:parseFloat($(id+"-bonus").value)||0,
+    boost:parseFloat($(id+"-boost").value)||0
+  };
+}
+
+$("calc-btn").onclick=()=>{
+  const sides=visibleSides.map(readSide);
+  // Only count sides with valid odds and a stake
+  const active=sides.filter(s=>s.odds>=1.01&&(s.cash>0||s.bonus>0));
+  if(!active.length){ alert("Enter odds and a stake for at least one side."); return; }
+  const bad=sides.filter(s=>(s.cash>0||s.bonus>0)&&s.odds<1.01);
+  if(bad.length){ alert("Enter valid decimal odds (≥1.01) for sides with stakes."); return; }
+
+  const totalCash=active.reduce((t,s)=>t+s.cash,0);
+  const totalBonus=active.reduce((t,s)=>t+s.bonus,0);
+  const results=active.map(s=>{
+    const ret=sideReturn(s.cash,s.bonus,s.odds,s.boost);
+    const cashRet=s.cash+s.cash*(s.odds-1)*(1+s.boost/100);
+    const bonusRet=s.bonus*(s.odds-1);
+    return {...s, ret, profit:ret-totalCash, cashRet, bonusRet};
+  });
+  const worst=Math.min(...results.map(r=>r.profit));
+  const ok=worst>0;
+
+  const box=$("results"); box.style.display="block";
+  let html=`
+    <div class="rrow"><span class="k">Total cash staked</span><span class="v">${fmt(totalCash)}</span></div>
+    <div class="rrow"><span class="k">Bonus staked (free)</span><span class="v">${fmt(totalBonus)}</span></div>`;
+  results.forEach((r,i)=>{
+    html+=`
+    <div class="divider"></div>
+    <div class="rrow"><span class="k"><b>Side ${r.name}</b> (${r.book} @ ${r.odds})</span><span></span></div>
+    <div class="rrow"><span class="k" style="padding-left:12px">Cash ${fmt(r.cash)} →</span><span class="v">${fmt(r.cashRet)}</span></div>
+    ${r.bonus>0?`<div class="rrow"><span class="k" style="padding-left:12px">Bonus ${fmt(r.bonus)} →</span><span class="v">${fmt(r.bonusRet)}</span></div>`:""}
+    <div class="rrow"><span class="k" style="padding-left:12px">Total return</span><span class="v">${fmt(r.ret)}</span></div>
+    <div class="rrow ${r.profit>=0?"profit":"loss"}"><span class="k" style="padding-left:12px">Profit</span><span class="v">${fmtSigned(r.profit)}</span></div>`;
+  });
+  html+=`
+    <div class="divider"></div>
+    <div class="rrow total"><span class="k">Guaranteed<span class="badge ${ok?"ok":"bad"}">${ok?"YES":"NO"}</span></span>
+      <span class="v">${fmt(worst)} worst case</span></div>`;
+  box.innerHTML=html;
+};
+
+/* ---------- bonus optimizer ---------- */
+$("opt-btn").onclick=()=>{
+  const B=parseFloat($("opt-bonus").value)||0;
+  if(B<=0){ alert("Enter your bonus amount."); return; }
+  const sides=visibleSides.map(readSide).filter(s=>s.odds>=1.01);
+  if(sides.length<2){ alert("Enter valid odds for at least 2 sides above."); return; }
+
+  // For bonus on side k: P = B*(O_k-1)*(1 - sum(1/O_i for i!=k))
+  // Hedge stakes: c_i = B*(O_k-1)/O_i for i!=k
+  const options=sides.map(k=>{
+    const others=sides.filter(s=>s.id!==k.id);
+    const invSum=others.reduce((t,s)=>t+1/s.odds,0);
+    const margin=1-invSum;
+    const profit=B*(k.odds-1)*margin;
+    const hedges=others.map(s=>({
+      ...s, stake:B*(k.odds-1)/s.odds
+    }));
+    const totalHedge=hedges.reduce((t,h)=>t+h.stake,0);
+    return {side:k, profit, hedges, totalHedge, margin};
+  }).sort((x,y)=>y.profit-x.profit);
+
+  const box=$("opt-results"); box.style.display="block";
+  let html="";
+  options.forEach((opt,i)=>{
+    const best=i===0;
+    html+=`
+    ${i>0?'<div class="divider"></div>':""}
+    <div class="rrow ${opt.profit>=0?"profit":"loss"}">
+      <span class="k">${best?"⭐ ":""}<b>Bonus on Side ${opt.side.name}</b> (${opt.side.book} @ ${opt.side.odds})</span>
+      <span class="v">${fmtSigned(opt.profit)}</span>
+    </div>`;
+    opt.hedges.forEach(h=>{
+      html+=`<div class="rrow"><span class="k" style="padding-left:12px">Hedge ${fmt(h.stake)} on ${h.name} @ ${h.odds}</span><span></span></div>`;
+    });
+    html+=`<div class="rrow"><span class="k" style="padding-left:12px">Total hedge cash</span><span class="v">${fmt(opt.totalHedge)}</span></div>`;
+    if(best&&opt.profit>0){
+      html+=`<button class="btn sec" id="opt-apply" style="margin-top:8px;">Apply to calculator</button>`;
+    }
+  });
+  if(options[0].profit<=0){
+    html+=`<div class="small">No profitable placement at these odds — the books have too much margin.</div>`;
+  }
+  box.innerHTML=html;
+
+  const applyBtn=$("opt-apply");
+  if(applyBtn){
+    applyBtn.onclick=()=>{
+      const best=options[0];
+      // Clear all sides, then set bonus on best side and cash hedges on others
+      visibleSides.forEach(id=>{
+        $(id+"-cash").value="0";
+        $(id+"-bonus").value="0";
+        $(id+"-boost").value="0";
+      });
+      $(best.side.id+"-bonus").value=B.toFixed(2);
+      best.hedges.forEach(h=>{
+        $(h.id+"-cash").value=h.stake.toFixed(2);
+      });
+      $("calc-btn").click();
+      window.scrollTo({top:0, behavior:"smooth"});
+    };
+  }
+};
+
+/* ---------- profit boost optimizer ---------- */
+// Variables: xa,xb = boosted stakes (0..maxA,0..maxB); ya,yb = normal stakes (>=0)
+// Returns: Ra = a1*xa + a0*ya ; Rb = b1*xb + b0*yb ; T = xa+xb+ya+yb
+// Maximize min(Ra-T, Rb-T).
+// For fixed (xa,xb): optimal (ya,yb) equalizes profits. D=(Kb-Ka); if D>=0: ya=D/a0,yb=0 else ya=0,yb=-D/b0.
+$("bo-btn").onclick=()=>{
+  const Oa=parseFloat($("bo-odds-a").value)||0, Ob=parseFloat($("bo-odds-b").value)||0;
+  const pa=parseFloat($("bo-pct-a").value)||0, pb=parseFloat($("bo-pct-b").value)||0;
+  const Ma=parseFloat($("bo-max-a").value)||0, Mb=parseFloat($("bo-max-b").value)||0;
+  if(Oa<1.01||Ob<1.01){ alert("Enter valid odds for both sides."); return; }
+  const a1=1+(Oa-1)*(1+pa/100), a0=Oa;
+  const b1=1+(Ob-1)*(1+pb/100), b0=Ob;
+
+  function evalPt(xa,xb){
+    const Ka=a1*xa-xa-xb, Kb=b1*xb-xa-xb;
+    const D=Kb-Ka;
+    let ya,yb;
+    if(D>=0){ ya=D/a0; yb=0; } else { ya=0; yb=-D/b0; }
+    const P=Ka+(a0-1)*ya-yb;
+    return {xa,xb,ya,yb,P, T:xa+xb+ya+yb};
+  }
+
+  // Grid search over boosted stakes, then refine
+  let best=null;
+  const step1=0.5;
+  for(let xa=0; xa<=Ma+1e-9; xa+=step1){
+    for(let xb=0; xb<=Mb+1e-9; xb+=step1){
+      const r=evalPt(Math.min(xa,Ma), Math.min(xb,Mb));
+      if(!best||r.P>best.P) best=r;
+    }
+  }
+  // Refine around best
+  const step2=0.05;
+  for(let xa=Math.max(0,best.xa-1); xa<=Math.min(Ma,best.xa+1)+1e-9; xa+=step2){
+    for(let xb=Math.max(0,best.xb-1); xb<=Math.min(Mb,best.xb+1)+1e-9; xb+=step2){
+      const r=evalPt(xa,xb);
+      if(r.P>best.P) best=r;
+    }
+  }
+
+  const box=$("bo-results"); box.style.display="block";
+  const ok=best.P>0;
+  box.innerHTML=`
+    <div class="rrow"><span class="k"><b>Side A</b> @ ${Oa}</span><span></span></div>
+    <div class="rrow"><span class="k" style="padding-left:12px">Boosted (${pa}%)</span><span class="v">${fmt(best.xa)}</span></div>
+    ${best.ya>0.005?`<div class="rrow"><span class="k" style="padding-left:12px">Normal</span><span class="v">${fmt(best.ya)}</span></div>`:""}
+    <div class="divider"></div>
+    <div class="rrow"><span class="k"><b>Side B</b> @ ${Ob}</span><span></span></div>
+    <div class="rrow"><span class="k" style="padding-left:12px">Boosted (${pb}%)</span><span class="v">${fmt(best.xb)}</span></div>
+    ${best.yb>0.005?`<div class="rrow"><span class="k" style="padding-left:12px">Normal</span><span class="v">${fmt(best.yb)}</span></div>`:""}
+    <div class="divider"></div>
+    <div class="rrow"><span class="k">Total staked</span><span class="v">${fmt(best.T)}</span></div>
+    <div class="rrow ${ok?"profit":"loss"} total"><span class="k">Guaranteed profit<span class="badge ${ok?"ok":"bad"}">${ok?"YES":"NO"}</span></span>
+      <span class="v">${fmtSigned(best.P)}</span></div>
+    ${ok?"":'<div class="small">No guaranteed profit at these odds/boosts.</div>'}`;
+};
+
+/* ---------- quick solver (2 sides) ---------- */
+$("solve-btn").onclick=()=>{
+  const oa=parseFloat($("s-odds-a").value)||0, ob=parseFloat($("s-odds-b").value)||0;
+  const S=parseFloat($("s-total").value)||0;
+  if(oa<1.01||ob<1.01||S<=0){ alert("Enter valid odds and total cash."); return; }
+  // Equal profit: stakeA*oa = stakeB*ob, stakeA+stakeB=S
+  const sa=S*ob/(oa+ob), sb=S*oa/(oa+ob);
+  const profit=sa*oa-S;
+  const box=$("solver-results"); box.style.display="block";
+  const ok=profit>0;
+  box.innerHTML=`
+    <div class="rrow"><span class="k">Stake on A @ ${oa}</span><span class="v">${fmt(sa)}</span></div>
+    <div class="rrow"><span class="k">Stake on B @ ${ob}</span><span class="v">${fmt(sb)}</span></div>
+    <div class="rrow ${profit>=0?"profit":"loss"} total"><span class="k">Profit either way<span class="badge ${ok?"ok":"bad"}">${ok?"YES":"NO"}</span></span>
+      <span class="v">${fmtSigned(profit)}</span></div>
+    ${ok?"":'<div class="small">No guaranteed profit at these odds — the books have too much margin.</div>'}`;
+  // Fill into main calculator (sides A and B) — ensure they exist
+  if(!visibleSides.includes("a")){
+    visibleSides.unshift("a");
+    $("sides").insertBefore(buildSide("a"), $("sides").firstChild);
+    $("a-book").value="FanDuel";
+  }
+  if(!visibleSides.includes("b")){
+    const aEl=$("side-a");
+    visibleSides.splice(visibleSides.indexOf("a")+1,0,"b");
+    const bEl=buildSide("b");
+    if(aEl&&aEl.nextSibling) $("sides").insertBefore(bEl, aEl.nextSibling);
+    else $("sides").appendChild(bEl);
+    $("b-book").value="DraftKings";
+  }
+  updateAddBtn();
+  $("a-odds").value=oa; $("b-odds").value=ob;
+  $("a-cash").value=sa.toFixed(2); $("b-cash").value=sb.toFixed(2);
+  $("a-bonus").value="0"; $("b-bonus").value="0";
+  $("a-boost").value="0"; $("b-boost").value="0";
+};
+
+</script>
+</body>
+</html>
